@@ -15,8 +15,11 @@
 # You should have received a copy of the GNU General Public License
 # along with crun.  If not, see <http://www.gnu.org/licenses/>.
 
+import logging
 import os
 from tests_utils import *
+
+logger = logging.getLogger(__name__)
 
 def test_mode_device():
     if is_rootless():
@@ -215,7 +218,43 @@ def test_mknod_device():
     return 0
 
 
+def test_dev_console_symlink_does_not_escape_rootfs():
+    escaped = os.path.join(get_tests_root(), "escaped-console")
+
+    conf = base_config()
+    add_all_namespaces(conf)
+    conf['process']['terminal'] = True
+    conf['process']['args'] = ['/init', 'true']
+    conf['mounts'] = [i for i in conf['mounts'] if not i['destination'].startswith("/dev")]
+    # a hook forces the deferred pivot_root, so the rootfs is still reached
+    # through the host file system when the devices are created.
+    conf['hooks'] = {"createRuntime": [{"path": "/bin/true"}]}
+
+    def prepare_rootfs(rootfs):
+        os.symlink(escaped, os.path.join(rootfs, "dev", "console"))
+
+    output = None
+    try:
+        run_and_get_output(conf, callback_prepare_rootfs=prepare_rootfs)
+    except Exception as e:
+        output = e.output.decode()
+
+    if os.path.lexists(escaped):
+        logger.error("`%s` was created outside the rootfs", escaped)
+        return -1
+
+    if output is None:
+        logger.error("the container was not refused")
+        return -1
+
+    if "creating file `console`" not in output:
+        logger.error("the container failed for a different reason: %s", output)
+        return -1
+
+    return 0
+
 all_tests = {
+    "dev-console-symlink-does-not-escape-rootfs": test_dev_console_symlink_does_not_escape_rootfs,
     "owner-device" : test_owner_device,
     "deny-devices" : test_deny_devices,
     "allow-device" : test_allow_device,
