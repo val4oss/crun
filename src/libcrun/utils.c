@@ -244,14 +244,14 @@ get_file_type (mode_t *mode, bool nofollow, const char *path)
 int
 create_file_if_missing_at (int dirfd, const char *file, libcrun_error_t *err)
 {
-  cleanup_close int fd_write = openat (dirfd, file, O_CLOEXEC | O_CREAT | O_WRONLY, 0700);
+  cleanup_close int fd_write = openat (dirfd, file, O_CLOEXEC | O_CREAT | O_WRONLY | O_NOFOLLOW, 0700);
   if (fd_write < 0)
     {
       mode_t mode;
       int ret;
 
       /* On errors, check if the file already exists.  */
-      ret = get_file_type_at (dirfd, &mode, false, file);
+      ret = get_file_type_at (dirfd, &mode, true, file);
       if (ret == 0 && S_ISREG (mode))
         return 0;
 
