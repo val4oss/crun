@@ -231,6 +231,46 @@ def test_trailing_slash_mknod_device():
         return -1
     return 0
 
+def test_dev_null_symlink_not_reopened():
+    host_file = os.path.join(get_tests_root(), "host-file")
+    with open(host_file, "w") as f:
+        f.write("host content")
+
+    fake_dev = os.path.join(get_tests_root(), "fake-dev")
+    os.makedirs(fake_dev)
+    os.symlink("/host-file", os.path.join(fake_dev, "null"))
+
+    conf = base_config()
+    add_all_namespaces(conf)
+    conf['process']['args'] = ['/init', 'echo', 'breakout']
+    conf['mounts'] = [i for i in conf['mounts'] if not i['destination'].startswith("/dev")]
+    conf['mounts'].append({"destination": "/host-file", "type": "bind",
+                           "source": host_file, "options": ["bind", "rw"]})
+    conf['mounts'].append({"destination": "/dev", "type": "bind",
+                           "source": fake_dev, "options": ["bind", "rw"]})
+
+    output = None
+    try:
+        run_and_get_output(conf)
+    except Exception as e:
+        output = e.output.decode()
+
+    with open(host_file) as f:
+        content = f.read()
+    if content != "host content":
+        logger.error("the host file was written through `/dev/null`: %s", content)
+        return -1
+
+    if output is None:
+        logger.error("the container was not refused")
+        return -1
+
+    if "failed open()ing `/dev/null`" not in output:
+        logger.error("the container failed for a different reason: %s", output)
+        return -1
+
+    return 0
+
 def test_dev_console_symlink_does_not_escape_rootfs():
     escaped = os.path.join(get_tests_root(), "escaped-console")
 
@@ -268,6 +308,7 @@ def test_dev_console_symlink_does_not_escape_rootfs():
 
 all_tests = {
     "dev-console-symlink-does-not-escape-rootfs": test_dev_console_symlink_does_not_escape_rootfs,
+    "dev-null-symlink-not-reopened": test_dev_null_symlink_not_reopened,
     "owner-device" : test_owner_device,
     "deny-devices" : test_deny_devices,
     "allow-device" : test_allow_device,
